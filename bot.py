@@ -1,3 +1,4 @@
+import os
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -7,11 +8,8 @@ import secrets
 
 # ================= CONFIG =================
 
-TOKEN = "PASTE_YOUR_DISCORD_BOT_TOKEN_HERE"
-
 OWNER_ID = 739411481342509059
-LOG_CHANNEL_ID = 123456789012345678  # set your log channel id
-
+LOG_CHANNEL_ID = 123456789012345678  # CHANGE THIS
 DB_FILE = "keys.db"
 
 ROLE_MAP = {
@@ -21,6 +19,10 @@ ROLE_MAP = {
 }
 
 # =========================================
+
+TOKEN = os.environ.get("TOKEN")
+if not TOKEN:
+    raise RuntimeError("TOKEN not found in Railway Variables")
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -39,10 +41,10 @@ async def init_db():
         """)
         await db.commit()
 
-# ---------- UTIL ----------
+# ---------- UTILS ----------
 
 def generate_key():
-    raw = secrets.token_urlsafe(32)  # VERY high entropy
+    raw = secrets.token_urlsafe(32)  # very high entropy
     key = raw.upper()
     key_hash = hashlib.sha256(key.encode()).hexdigest()
     return key, key_hash
@@ -60,7 +62,7 @@ async def on_ready():
 
 # ---------- USER COMMAND ----------
 
-@bot.tree.command(name="redeem", description="Redeem your key (one-time use)")
+@bot.tree.command(name="redeem", description="Redeem a one-time license key")
 @app_commands.describe(key="Your license key")
 async def redeem(interaction: discord.Interaction, key: str):
 
@@ -95,7 +97,6 @@ async def redeem(interaction: discord.Interaction, key: str):
         )
         await db.commit()
 
-    # Give role
     role_name = ROLE_MAP.get(product.lower())
     if role_name:
         role = discord.utils.get(interaction.guild.roles, name=role_name)
@@ -103,20 +104,19 @@ async def redeem(interaction: discord.Interaction, key: str):
             await interaction.user.add_roles(role)
 
     await interaction.response.send_message(
-        f"✅ **SUCCESS**\nYou redeemed **{product.upper()}**",
+        f"✅ You redeemed **{product.upper()}**",
         ephemeral=True
     )
 
-    # Log
-    log_channel = bot.get_channel(LOG_CHANNEL_ID)
-    if log_channel:
+    log = bot.get_channel(LOG_CHANNEL_ID)
+    if log:
         embed = discord.Embed(
             title="🔑 Key Redeemed",
             color=discord.Color.green()
         )
         embed.add_field(name="User", value=interaction.user.mention, inline=False)
         embed.add_field(name="Product", value=product.upper(), inline=False)
-        await log_channel.send(embed=embed)
+        await log.send(embed=embed)
 
 # ---------- ADMIN COMMANDS ----------
 
@@ -135,7 +135,7 @@ async def addkey(
 ):
     if not is_owner(interaction):
         await interaction.response.send_message(
-            "❌ You are not allowed to use this.",
+            "❌ No permission.",
             ephemeral=True
         )
         return
@@ -160,19 +160,17 @@ async def addkey(
 
         await db.commit()
 
-    formatted_keys = "\n".join(keys)
-
     await interaction.response.send_message(
         f"🔐 **{amount} ONE-TIME KEY(S) GENERATED**\n"
         f"📦 Product: **{product.upper()}**\n\n"
-        f"```{formatted_keys}```\n"
+        f"```{chr(10).join(keys)}```\n"
         f"⚠️ Save these now. They cannot be recovered.",
         ephemeral=True
     )
 
 @bot.tree.command(
     name="listkeys",
-    description="View key stats (OWNER ONLY)"
+    description="View key usage stats (OWNER ONLY)"
 )
 async def listkeys(interaction: discord.Interaction):
 
