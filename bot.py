@@ -10,7 +10,9 @@ import secrets
 
 OWNER_ID = 739411481342509059
 LOG_CHANNEL_ID = 123456789012345678  # CHANGE THIS
-DB_FILE = "keys.db"
+
+DB_DIR = "/app/data"
+DB_FILE = f"{DB_DIR}/keys.db"
 
 ROLE_MAP = {
     "premium": "Premium",
@@ -19,6 +21,9 @@ ROLE_MAP = {
 }
 
 # =========================================
+
+# Ensure DB directory exists (CRITICAL)
+os.makedirs(DB_DIR, exist_ok=True)
 
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
@@ -128,11 +133,8 @@ async def redeem(interaction: discord.Interaction, key: str):
     product="Product name (premium / vip / lifetime)",
     amount="Number of keys to generate"
 )
-async def addkey(
-    interaction: discord.Interaction,
-    product: str,
-    amount: int
-):
+async def addkey(interaction: discord.Interaction, product: str, amount: int):
+
     if not is_owner(interaction):
         await interaction.response.send_message(
             "❌ No permission.",
@@ -157,7 +159,6 @@ async def addkey(
                 (key_hash, product.lower())
             )
             keys.append(key)
-
         await db.commit()
 
     await interaction.response.send_message(
