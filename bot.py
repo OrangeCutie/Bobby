@@ -5,11 +5,13 @@ from discord import app_commands
 import aiosqlite
 import hashlib
 import secrets
+from datetime import datetime, timezone
 
 # ================= CONFIG =================
 
 OWNER_ID = 739411481342509059
-LOG_CHANNEL_ID = 123456789012345678  # CHANGE THIS
+
+LOG_CHANNEL_ID = 123456789012345678  # 👈 CHANGE THIS TO YOUR LOG CHANNEL
 
 DB_DIR = "/app/data"
 DB_FILE = f"{DB_DIR}/keys.db"
@@ -22,7 +24,6 @@ ROLE_MAP = {
 
 # =========================================
 
-# Ensure DB directory exists (CRITICAL)
 os.makedirs(DB_DIR, exist_ok=True)
 
 TOKEN = os.environ.get("TOKEN")
@@ -49,13 +50,16 @@ async def init_db():
 # ---------- UTILS ----------
 
 def generate_key():
-    raw = secrets.token_urlsafe(32)  # very high entropy
+    raw = secrets.token_urlsafe(32)
     key = raw.upper()
     key_hash = hashlib.sha256(key.encode()).hexdigest()
     return key, key_hash
 
 def is_owner(interaction: discord.Interaction):
     return interaction.user.id == OWNER_ID
+
+def utc_now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 # ---------- EVENTS ----------
 
@@ -71,7 +75,8 @@ async def on_ready():
 @app_commands.describe(key="Your license key")
 async def redeem(interaction: discord.Interaction, key: str):
 
-    key_hash = hashlib.sha256(key.upper().encode()).hexdigest()
+    key_clean = key.upper()
+    key_hash = hashlib.sha256(key_clean.encode()).hexdigest()
 
     async with aiosqlite.connect(DB_FILE) as db:
         cursor = await db.execute(
@@ -81,19 +86,13 @@ async def redeem(interaction: discord.Interaction, key: str):
         row = await cursor.fetchone()
 
         if not row:
-            await interaction.response.send_message(
-                "❌ Invalid key.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ Invalid key.", ephemeral=True)
             return
 
         product, redeemed = row
 
         if redeemed == 1:
-            await interaction.response.send_message(
-                "❌ This key has already been used.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ This key has already been used.", ephemeral=True)
             return
 
         await db.execute(
@@ -102,6 +101,7 @@ async def redeem(interaction: discord.Interaction, key: str):
         )
         await db.commit()
 
+    # Assign role
     role_name = ROLE_MAP.get(product.lower())
     if role_name:
         role = discord.utils.get(interaction.guild.roles, name=role_name)
@@ -113,15 +113,20 @@ async def redeem(interaction: discord.Interaction, key: str):
         ephemeral=True
     )
 
-    log = bot.get_channel(LOG_CHANNEL_ID)
-    if log:
+    # ---------- LOGGING ----------
+
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    if log_channel:
         embed = discord.Embed(
             title="🔑 Key Redeemed",
             color=discord.Color.green()
         )
-        embed.add_field(name="User", value=interaction.user.mention, inline=False)
+        embed.add_field(name="User", value=f"{interaction.user} ({interaction.user.id})", inline=False)
+        embed.add_field(name="Key", value=f"`{key_clean}`", inline=False)
         embed.add_field(name="Product", value=product.upper(), inline=False)
-        await log.send(embed=embed)
+        embed.add_field(name="Time", value=utc_now(), inline=False)
+
+        await log_channel.send(embed=embed)
 
 # ---------- ADMIN COMMANDS ----------
 
@@ -136,17 +141,11 @@ async def redeem(interaction: discord.Interaction, key: str):
 async def addkey(interaction: discord.Interaction, product: str, amount: int):
 
     if not is_owner(interaction):
-        await interaction.response.send_message(
-            "❌ No permission.",
-            ephemeral=True
-        )
+        await interaction.response.send_message("❌ No permission.", ephemeral=True)
         return
 
     if amount < 1 or amount > 50:
-        await interaction.response.send_message(
-            "❌ Amount must be between 1 and 50.",
-            ephemeral=True
-        )
+        await interaction.response.send_message("❌ Amount must be between 1 and 50.", ephemeral=True)
         return
 
     keys = []
@@ -176,10 +175,7 @@ async def addkey(interaction: discord.Interaction, product: str, amount: int):
 async def listkeys(interaction: discord.Interaction):
 
     if not is_owner(interaction):
-        await interaction.response.send_message(
-            "❌ No permission.",
-            ephemeral=True
-        )
+        await interaction.response.send_message("❌ No permission.", ephemeral=True)
         return
 
     async with aiosqlite.connect(DB_FILE) as db:
@@ -189,10 +185,7 @@ async def listkeys(interaction: discord.Interaction):
         rows = await cursor.fetchall()
 
     if not rows:
-        await interaction.response.send_message(
-            "No keys in database.",
-            ephemeral=True
-        )
+        await interaction.response.send_message("No keys in database.", ephemeral=True)
         return
 
     text = "\n".join(
@@ -200,10 +193,7 @@ async def listkeys(interaction: discord.Interaction):
         for product, redeemed in rows
     )
 
-    await interaction.response.send_message(
-        f"```{text}```",
-        ephemeral=True
-    )
+    await interaction.response.send_message(f"```{text}```", ephemeral=True)
 
 # ---------- RUN ----------
 
